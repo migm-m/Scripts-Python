@@ -1,0 +1,108 @@
+import boto3
+import json
+import csv
+from datetime import datetime, timedelta
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle
+
+def lambda_handler(event, context):
+    # Crear clientes para CloudWatch Logs y RDS
+    logs = boto3.client('logs')
+    rds = boto3.client('rds')
+
+    try:
+        # Definir el grupo de logs y el intervalo de tiempo (últimas 24 horas)
+        log_group_name = '/aws/rds/instance/mi-instancia-rds/error'  # Cambia esto por tu grupo de logs
+        start_time = int((datetime.now() - timedelta(hours=24)).timestamp() * 1000)  # Hace 24 horas
+        end_time = int(datetime.now().timestamp() * 1000)  # Ahora
+
+        # Consultar los logs
+        response = logs.filter_log_events(
+            logGroupName=log_group_name,
+            startTime=start_time,
+            endTime=end_time,
+            filterPattern='DEBUG INFO WARN ERROR'  # Buscar eventos con estos niveles
+        )
+
+        # Clasificar los eventos por nivel
+        log_events = response.get('events', [])
+        classified_logs = {
+            'DEBUG': [],
+            'INFO': [],
+            'WARN': [],
+            'ERROR': []
+        }
+
+        for event in log_events:
+            message = event['message'].strip()
+            if 'DEBUG' in message:
+                classified_logs['DEBUG'].append(event)
+            elif 'INFO' in message:
+                classified_logs['INFO'].append(event)
+            elif 'WARN' in message:
+                classified_logs['WARN'].append(event)
+            elif 'ERROR' in message:
+                classified_logs['ERROR'].append(event)
+
+        print(f"Eventos clasificados: DEBUG={len(classified_logs['DEBUG'])}, INFO={len(classified_logs['INFO'])}, WARN={len(classified_logs['WARN'])}, ERROR={len(classified_logs['ERROR'])}")
+
+        # 2. Generar el informe en formato PDF
+        if any(classified_logs.values()):  # Verificar si hay eventos
+            pdf_filename = '/tmp/reporte_errores.pdf'  # Lambda permite escribir en /tmp
+
+            # Crear el documento PDF
+            pdf = SimpleDocTemplate(pdf_filename, pagesize=letter)
+            styles = getSampleStyleSheet()
+            elements = []
+
+            # Título del informe
+            elements.append(Paragraph("Reporte de Errores - CloudWatch Logs", styles['Title']))
+            elements.append(Paragraph(f"Generado el: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+
+            # Crear una tabla con los eventos clasificados
+            data = [['Nivel', 'Timestamp', 'Mensaje']]  # Cabecera de la tabla
+
+            for level, events in classified_logs.items():
+                for event in events:
+                    timestamp = datetime.fromtimestamp(event['timestamp'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                    message = event['message'].strip()
+                    data.append([level, timestamp, message])
+
+            # Estilo de la tabla
+            table = Table(data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),  # Color de fondo para la cabecera
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),  # Color del texto de la cabecera
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Alinear el contenido al centro
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),  # Fuente de la cabecera
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),  # Espaciado inferior de la cabecera
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),  # Color de fondo para las filas
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)  # Líneas de la tabla
+            ]))
+
+            elements.append(table)
+            pdf.build(elements)
+            print(f"Informe PDF generado en {pdf_filename}")
+
+            # 3. (Opcional) Subir el archivo PDF a S3
+            s3 = boto3.client('s3')
+            s3.upload_file(pdf_filename, 'mi-bucket-s3', 'reportes/reporte_errores.pdf')
+            print("Informe subido a S3.")
+
+        else:
+            print("No se encontraron eventos en los logs.")
+
+    except Exception as e:
+        print(f"Error al consultar los logs o generar el informe: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps('Error al generar el informe')
+        }
+
+    # Retornar una respuesta exitosa
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Informe generado con éxito')
+    }
