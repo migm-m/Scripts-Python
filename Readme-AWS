@@ -1,0 +1,31 @@
+    Clasificación de eventos por nivel:
+
+        Se utiliza un diccionario (classified_logs) para clasificar los eventos en cuatro niveles: DEBUG, INFO, WARN y ERROR.
+
+        Se recorre cada evento y se verifica si el mensaje contiene alguna de estas palabras clave.
+
+    Generación del informe en PDF:
+
+        Se utiliza la librería reportlab para crear un archivo PDF.
+
+        El informe incluye:
+
+            Un título y la fecha de generación.
+
+            Una tabla con tres columnas: Nivel, Timestamp y Mensaje.
+
+        La tabla tiene estilos personalizados, como colores de fondo, alineación y bordes.
+
+    Subida del archivo PDF a S3:
+
+        Después de generar el PDF, se sube automáticamente a un bucket de S3 para compartirlo.
+
+        Asegúrate de reemplazar 'mi-bucket-s3' con el nombre de tu bucket.
+
+    Manejo de errores:
+
+        Si ocurre algún error durante la ejecución, se captura la excepción y se devuelve un código de estado 500.
+
+    Respuesta exitosa:
+
+        Si todo funciona correctamente, se devuelve un código de estado 200 y un mensaje de éxito.
